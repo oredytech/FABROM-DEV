@@ -24,18 +24,24 @@
     <script>
       window.addEventListener('DOMContentLoaded', () => {
         const notifyParentOfPath = () => {
-          window.parent.postMessage(
-            {
-              type: 'spa-path-update',
-              slug: window.location.pathname
-            },
-            '*'
-          );
+          // Notifier tous les parents dans la chaîne d'iframes
+          let targetWindow = window.parent;
+          while (targetWindow !== window) {
+            targetWindow.postMessage(
+              {
+                type: 'spa-path-update',
+                slug: window.location.pathname
+              },
+              '*'
+            );
+            if (targetWindow === targetWindow.parent) break;
+            targetWindow = targetWindow.parent;
+          }
         };
       
         notifyParentOfPath(); // envoyer au premier chargement
       
-        // Envoyer le nouveau slug à chaque navigation (si tu utilises un routeur comme VueRouter ou ReactRouter)
+        // Envoyer le nouveau slug à chaque navigation
         window.addEventListener('popstate', notifyParentOfPath);
         window.history.pushState = new Proxy(window.history.pushState, {
           apply: function (target, thisArg, argumentsList) {
@@ -43,6 +49,17 @@
             notifyParentOfPath();
           }
         });
+        
+        // Demander l'accès au stockage pour les iframes imbriqués
+        if (document.hasStorageAccess) {
+          document.hasStorageAccess().then(hasAccess => {
+            if (!hasAccess) {
+              document.requestStorageAccess().catch(err => {
+                console.log('Storage access denied:', err);
+              });
+            }
+          });
+        }
       });
     </script>
   </body>

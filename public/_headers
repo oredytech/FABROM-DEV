@@ -1,7 +1,7 @@
 # Headers pour permettre l'accès depuis fabrom.net et l'ouverture en iframe
 /*
   Access-Control-Allow-Origin: *
-  Content-Security-Policy: frame-ancestors 'self' https://fabrom.net https://*.fabrom.net
+  Content-Security-Policy: frame-ancestors 'self' https://fabrom.net https://*.fabrom.net https://fabrom.netlify.app
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
-  Permissions-Policy: camera=*, microphone=*, geolocation=*, accelerometer=*, gyroscope=*
+  Permissions-Policy: camera=*, microphone=*, geolocation=*, accelerometer=*, gyroscope=*, storage-access=*, clipboard-read=*, clipboard-write=*

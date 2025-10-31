@@ -19,9 +19,10 @@
 [[headers]]
   for = "/*"
   [headers.values]
-    Content-Security-Policy = "frame-ancestors 'self' https://fabrom.net https://*.fabrom.net"
+    Content-Security-Policy = "frame-ancestors 'self' https://fabrom.net https://*.fabrom.net https://fabrom.netlify.app"
     Access-Control-Allow-Origin = "*"
     X-Content-Type-Options = "nosniff"
+    Permissions-Policy = "camera=*, microphone=*, geolocation=*, accelerometer=*, gyroscope=*, storage-access=*, clipboard-read=*, clipboard-write=*"
 
 # Environment variables that can be set in the Netlify UI
 [build.environment]
