@@ -1,7 +1,7 @@
-# Headers pour permettre l'accès depuis fabrom.net
+# Headers pour permettre l'accès depuis fabrom.net et l'ouverture en iframe
 /*
   Access-Control-Allow-Origin: *
-  X-Frame-Options: SAMEORIGIN
+  Content-Security-Policy: frame-ancestors 'self' https://fabrom.net https://*.fabrom.net
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=*, microphone=*, geolocation=*, accelerometer=*, gyroscope=*
