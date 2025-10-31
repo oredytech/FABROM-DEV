@@ -3,6 +3,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
 serve(async (req) => {
@@ -11,7 +12,7 @@ serve(async (req) => {
   }
 
   try {
-    const { messages, code, directoryContext } = await req.json();
+    const { messages, code, directoryContext, images } = await req.json();
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     
     if (!LOVABLE_API_KEY) {
@@ -24,6 +25,13 @@ Current code context:
 ${code || "No code yet"}
 
 ${directoryContext || ""}
+
+IMPORTANT - Image Integration:
+- When users provide Cloudinary image URLs, always use them directly in the HTML
+- Format: <img src="CLOUDINARY_URL_HERE" alt="descriptive text">
+- Analyze images to provide accurate alt text and appropriate sizing
+- Ensure images are responsive with proper CSS
+- Use the exact Cloudinary URLs provided by the user
 
 Guidelines:
 - Generate complete, standalone HTML files that can run directly in a browser
@@ -38,6 +46,12 @@ Guidelines:
 - The generated code should work offline (except for API calls)
 - Use modern CSS features and animations
 - Include proper HTML5 semantic tags
+
+Image handling:
+- All images uploaded by users are stored on Cloudinary
+- Use the provided Cloudinary URLs directly in your HTML
+- Analyze images to understand their content and provide proper integration
+- Apply appropriate styling and responsive design to images
 
 Multi-page applications:
 - When the user asks for multiple pages, create separate HTML files (e.g., index.html, about.html, contact.html)
@@ -60,12 +74,38 @@ Code structure and file management:
 - Link pages together using standard HTML anchor tags
 - Use consistent naming conventions for files
 - Never mix code from different pages in a single file
+- For images, use the Cloudinary URLs provided by users
 
 IMPORTANT: When the user asks to create or modify a specific page:
 1. Identify the target file (e.g., "page À propos" = about.html, "page Contact" = contact.html)
 2. Wrap your HTML code with the file marker: ~~~FILE:filename.html
 3. Provide complete, working HTML code for that page
 4. If creating multiple files, use multiple file markers`;
+
+    // Prepare messages with image support if images are provided
+    const chatMessages = [
+      { role: "system", content: systemPrompt },
+      ...messages,
+    ];
+
+    // If images are provided, add them to the last user message
+    if (images && images.length > 0) {
+      const lastUserMessageIndex = chatMessages.length - 1;
+      if (chatMessages[lastUserMessageIndex].role === "user") {
+        const imageContent = images.map((img: {url: string, name: string}) => ({
+          type: "image_url",
+          image_url: { url: img.url }
+        }));
+        
+        chatMessages[lastUserMessageIndex] = {
+          role: "user",
+          content: [
+            { type: "text", text: chatMessages[lastUserMessageIndex].content },
+            ...imageContent
+          ]
+        };
+      }
+    }
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -75,10 +115,7 @@ IMPORTANT: When the user asks to create or modify a specific page:
       },
       body: JSON.stringify({
         model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: systemPrompt },
-          ...messages,
-        ],
+        messages: chatMessages,
         stream: true,
       }),
     });

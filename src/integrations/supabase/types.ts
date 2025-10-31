@@ -14,7 +14,101 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      conversation_history: {
+        Row: {
+          created_at: string | null
+          files: Json | null
+          id: string
+          messages: Json | null
+          project_name: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          files?: Json | null
+          id?: string
+          messages?: Json | null
+          project_name: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          files?: Json | null
+          id?: string
+          messages?: Json | null
+          project_name?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      file_versions: {
+        Row: {
+          conversation_id: string
+          created_at: string | null
+          file_content: string
+          file_name: string
+          id: string
+          version_number: number
+        }
+        Insert: {
+          conversation_id: string
+          created_at?: string | null
+          file_content: string
+          file_name: string
+          id?: string
+          version_number: number
+        }
+        Update: {
+          conversation_id?: string
+          created_at?: string | null
+          file_content?: string
+          file_name?: string
+          id?: string
+          version_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_conversation"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversation_history"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          email: string
+          first_name: string | null
+          id: string
+          last_name: string | null
+          updated_at: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          email: string
+          first_name?: string | null
+          id: string
+          last_name?: string | null
+          updated_at?: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          email?: string
+          first_name?: string | null
+          id?: string
+          last_name?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

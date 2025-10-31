@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { toast as sonnerToast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { UserAvatar } from "@/components/UserAvatar";
+import { useCloudinaryUpload } from "@/hooks/useCloudinaryUpload";
 
 interface Message {
   role: "user" | "assistant";
@@ -41,10 +42,11 @@ export function ChatInterface({
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [uploadedImages, setUploadedImages] = useState<string[]>([]);
+  const [uploadedImages, setUploadedImages] = useState<Array<{url: string, name: string}>>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  const { uploadImage, isUploading } = useCloudinaryUpload();
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -190,10 +192,11 @@ export function ChatInterface({
           Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
         },
         body: JSON.stringify({
-          messages: updatedMessages,
-          code,
-          directoryContext,
-        }),
+      messages: updatedMessages,
+      code,
+      directoryContext,
+      images: uploadedImages.length > 0 ? uploadedImages : undefined,
+    }),
       });
 
       if (!response.ok) {
@@ -317,54 +320,34 @@ export function ChatInterface({
   };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!directoryHandle) {
-      sonnerToast.error("Veuillez d'abord sélectionner un dossier d'enregistrement");
-      return;
-    }
-
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
     try {
-      // Request permissions first
-      const dir: any = directoryHandle;
-      if (dir?.queryPermission) {
-        let status = await dir.queryPermission({ mode: "readwrite" });
-        if (status !== "granted") {
-          status = await dir.requestPermission({ mode: "readwrite" });
-          if (status !== "granted") {
-            sonnerToast.error("Permission d'écriture refusée");
-            return;
-          }
+      sonnerToast.info("Upload des images vers Cloudinary...");
+      const newImages: Array<{url: string, name: string}> = [];
+
+      for (const file of Array.from(files)) {
+        const result = await uploadImage(file);
+        if (result) {
+          newImages.push({ url: result.url, name: file.name });
         }
       }
 
-      // Create upload directory
-      const uploadDir = await directoryHandle.getDirectoryHandle("upload", { create: true });
-      const newImages: string[] = [];
+      if (newImages.length > 0) {
+        setUploadedImages(prev => [...prev, ...newImages]);
+        sonnerToast.success(`${newImages.length} image(s) uploadée(s) avec succès sur Cloudinary`);
 
-      for (const file of Array.from(files)) {
-        // Save image to upload folder
-        const fileHandle = await uploadDir.getFileHandle(file.name, { create: true });
-        const writable = await fileHandle.createWritable();
-        await writable.write(file);
-        await writable.close();
-
-        newImages.push(`upload/${file.name}`);
+        // Add info message to chat with Cloudinary URLs
+        const imagesList = newImages.map(img => `- ${img.name}: ${img.url}`).join('\n');
+        setInput(prev => 
+          prev + (prev ? '\n\n' : '') + 
+          `J'ai uploadé ces images sur Cloudinary :\n${imagesList}\n\nAnalyse les images et intègre-les dans le code HTML avec leurs URLs Cloudinary.`
+        );
       }
-
-      setUploadedImages(prev => [...prev, ...newImages]);
-      sonnerToast.success(`${files.length} image(s) téléchargée(s) avec succès`);
-
-      // Add info message to chat
-      const imagesList = newImages.map(img => `- ${img}`).join('\n');
-      setInput(prev => 
-        prev + (prev ? '\n\n' : '') + 
-        `J'ai ajouté ces images :\n${imagesList}\n\nPeux-tu les intégrer dans le code ?`
-      );
     } catch (error) {
       console.error("Error uploading images:", error);
-      sonnerToast.error("Erreur lors du téléchargement des images");
+      sonnerToast.error("Erreur lors de l'upload des images");
     }
   };
 
@@ -450,24 +433,29 @@ export function ChatInterface({
               disabled={isLoading}
             />
             {uploadedImages.length > 0 && (
-              <div className="text-xs text-muted-foreground">
-                {uploadedImages.length} image(s) disponible(s)
+              <div className="flex flex-wrap gap-2 mt-2">
+                {uploadedImages.map((img, idx) => (
+                  <div key={idx} className="relative group">
+                    <img 
+                      src={img.url} 
+                      alt={img.name} 
+                      className="w-20 h-20 object-cover rounded border border-border"
+                    />
+                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded flex items-center justify-center">
+                      <span className="text-white text-xs truncate px-1">{img.name}</span>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
           <div className="flex flex-col gap-2">
             <Button
-              onClick={() => {
-                if (!directoryHandle) {
-                  sonnerToast.error("Veuillez d'abord sélectionner un dossier d'enregistrement");
-                  return;
-                }
-                fileInputRef.current?.click();
-              }}
-              disabled={isLoading}
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isLoading || isUploading}
               variant="outline"
               size="icon"
-              title="Ajouter des images"
+              title="Upload des images vers Cloudinary"
             >
               <ImagePlus className="w-4 h-4" />
             </Button>
