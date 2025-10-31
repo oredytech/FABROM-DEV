@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="https://oredytech.com/wp-content/uploads/2025/10/logo-fabrom-2.png" type="image/png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FABROM - Créez des applications web avec l'IA</title>
+    <meta name="description" content="Créez des applications web rapidement grâce à la génération de code assistée par IA. Éditeur de code professionnel avec aperçu en direct." />
+    <meta name="author" content="Oredy TECHNOLOGIES" />
+
+    <meta property="og:title" content="FABROM - Créez des applications web avec l'IA" />
+    <meta property="og:description" content="Créez des applications web rapidement grâce à la génération de code assistée par IA" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://oredytech.com/wp-content/uploads/2025/10/logo-fabrom-2.png" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@oredytech" />
+    <meta name="twitter:image" content="https://oredytech.com/wp-content/uploads/2025/10/logo-fabrom-2.png" />
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <script>
+      window.addEventListener('DOMContentLoaded', () => {
+        const notifyParentOfPath = () => {
+          window.parent.postMessage(
+            {
+              type: 'spa-path-update',
+              slug: window.location.pathname
+            },
+            '*'
+          );
+        };
+      
+        notifyParentOfPath(); // envoyer au premier chargement
+      
+        // Envoyer le nouveau slug à chaque navigation (si tu utilises un routeur comme VueRouter ou ReactRouter)
+        window.addEventListener('popstate', notifyParentOfPath);
+        window.history.pushState = new Proxy(window.history.pushState, {
+          apply: function (target, thisArg, argumentsList) {
+            target.apply(thisArg, argumentsList);
+            notifyParentOfPath();
+          }
+        });
+      });
+    </script>
+  </body>
+</html>
