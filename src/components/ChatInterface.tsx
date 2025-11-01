@@ -42,7 +42,7 @@ export function ChatInterface({
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [uploadedImages, setUploadedImages] = useState<Array<{url: string, name: string}>>([]);
+  const [uploadedImages, setUploadedImages] = useState<Array<{url: string, name: string, isLoading?: boolean}>>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -127,9 +127,11 @@ export function ChatInterface({
     if (!input.trim() || isLoading) return;
 
     const userMessage: Message = { role: "user", content: input };
+    const currentImages = uploadedImages.filter(img => !img.isLoading);
     const updatedMessages = [...messages, userMessage];
     setMessages(updatedMessages);
     setInput("");
+    setUploadedImages([]); // Clear images after sending
     setIsLoading(true);
 
     let assistantContent = "";
@@ -195,7 +197,7 @@ export function ChatInterface({
       messages: updatedMessages,
       code,
       directoryContext,
-      images: uploadedImages.length > 0 ? uploadedImages : undefined,
+      images: currentImages.length > 0 ? currentImages : undefined,
     }),
       });
 
@@ -324,31 +326,63 @@ export function ChatInterface({
     if (!files || files.length === 0) return;
 
     try {
-      sonnerToast.info("Upload des images vers Cloudinary...");
-      const newImages: Array<{url: string, name: string}> = [];
+      const newImages: Array<{url: string, name: string, isLoading?: boolean}> = [];
+      const loadingImages: Array<{url: string, name: string, isLoading: boolean}> = [];
 
+      // Check file sizes (500KB = 512000 bytes)
       for (const file of Array.from(files)) {
+        if (file.size > 512000) {
+          sonnerToast.error(`L'image "${file.name}" dépasse la limite de 500KB (${Math.round(file.size / 1024)}KB)`);
+          continue;
+        }
+
+        // Add loading placeholder
+        const loadingPlaceholder = { 
+          url: URL.createObjectURL(file), 
+          name: file.name, 
+          isLoading: true 
+        };
+        loadingImages.push(loadingPlaceholder);
+      }
+
+      // Show loading images
+      if (loadingImages.length > 0) {
+        setUploadedImages(prev => [...prev, ...loadingImages]);
+        sonnerToast.info(`Upload de ${loadingImages.length} image(s) en cours...`);
+      }
+
+      // Upload images
+      for (let i = 0; i < Array.from(files).length; i++) {
+        const file = Array.from(files)[i];
+        if (file.size > 512000) continue;
+
         const result = await uploadImage(file);
         if (result) {
           newImages.push({ url: result.url, name: file.name });
+          
+          // Replace loading image with actual image
+          setUploadedImages(prev => 
+            prev.map(img => 
+              img.name === file.name && img.isLoading 
+                ? { url: result.url, name: file.name } 
+                : img
+            )
+          );
         }
       }
 
       if (newImages.length > 0) {
-        setUploadedImages(prev => [...prev, ...newImages]);
-        sonnerToast.success(`${newImages.length} image(s) uploadée(s) avec succès sur Cloudinary`);
-
-        // Add info message to chat with Cloudinary URLs
-        const imagesList = newImages.map(img => `- ${img.name}: ${img.url}`).join('\n');
-        setInput(prev => 
-          prev + (prev ? '\n\n' : '') + 
-          `J'ai uploadé ces images sur Cloudinary :\n${imagesList}\n\nAnalyse les images et intègre-les dans le code HTML avec leurs URLs Cloudinary.`
-        );
+        sonnerToast.success(`${newImages.length} image(s) uploadée(s) avec succès`);
       }
     } catch (error) {
       console.error("Error uploading images:", error);
       sonnerToast.error("Erreur lors de l'upload des images");
+      // Remove failed loading images
+      setUploadedImages(prev => prev.filter(img => !img.isLoading));
     }
+
+    // Reset file input
+    e.target.value = '';
   };
 
   return (
@@ -439,11 +473,21 @@ export function ChatInterface({
                     <img 
                       src={img.url} 
                       alt={img.name} 
-                      className="w-20 h-20 object-cover rounded border border-border"
+                      className={`w-20 h-20 object-cover rounded border border-border transition-opacity ${
+                        img.isLoading ? 'opacity-50 animate-pulse' : 'opacity-100'
+                      }`}
                     />
-                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded flex items-center justify-center">
-                      <span className="text-white text-xs truncate px-1">{img.name}</span>
-                    </div>
+                    {img.isLoading && (
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+                      </div>
+                    )}
+                    <button
+                      onClick={() => setUploadedImages(prev => prev.filter((_, i) => i !== idx))}
+                      className="absolute -top-2 -right-2 w-5 h-5 bg-destructive text-destructive-foreground rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      ×
+                    </button>
                   </div>
                 ))}
               </div>

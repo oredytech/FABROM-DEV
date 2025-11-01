@@ -81,11 +81,11 @@ export default {
         "pulse-glow": {
           "0%, 100%": {
             opacity: "1",
-            boxShadow: "0 0 20px hsl(217 91% 60% / 0.3)",
+            boxShadow: "0 0 20px hsl(0 100% 50% / 0.3)",
           },
           "50%": {
             opacity: "0.8",
-            boxShadow: "0 0 30px hsl(217 91% 60% / 0.5)",
+            boxShadow: "0 0 30px hsl(0 100% 50% / 0.5)",
           },
         },
       },
