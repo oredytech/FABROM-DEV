@@ -65,11 +65,11 @@ const Auth = () => {
 
     setLoading(true);
 
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email: validation.data.email,
       password: validation.data.password,
       options: {
-        emailRedirectTo: `${window.location.origin}/`,
+        emailRedirectTo: `${window.location.origin}/editor`,
         data: {
           first_name: validation.data.firstName,
           last_name: validation.data.lastName,
@@ -80,9 +80,23 @@ const Auth = () => {
     setLoading(false);
 
     if (error) {
-      toast.error(error.message);
-    } else {
-      toast.success("Compte créé avec succès !");
+      // Messages d'erreur en français
+      if (error.message.includes("User already registered")) {
+        toast.error("Un compte existe déjà avec cette adresse email. Veuillez vous connecter.");
+      } else if (error.message.includes("Invalid email")) {
+        toast.error("Adresse email invalide.");
+      } else if (error.message.includes("Password")) {
+        toast.error("Le mot de passe ne respecte pas les critères de sécurité.");
+      } else {
+        toast.error(`Erreur lors de l'inscription : ${error.message}`);
+      }
+    } else if (data.user) {
+      toast.success("Compte créé avec succès ! Vous pouvez maintenant vous connecter.");
+      // Réinitialiser les champs
+      setEmail("");
+      setPassword("");
+      setFirstName("");
+      setLastName("");
     }
   };
 
@@ -111,7 +125,18 @@ const Auth = () => {
     setLoading(false);
 
     if (error) {
-      toast.error(error.message);
+      // Messages d'erreur en français
+      if (error.message.includes("Invalid login credentials")) {
+        toast.error("Email ou mot de passe incorrect. Vérifiez vos identifiants.");
+      } else if (error.message.includes("Email not confirmed")) {
+        toast.error("Veuillez confirmer votre adresse email avant de vous connecter.");
+      } else if (error.message.includes("Invalid email")) {
+        toast.error("Adresse email invalide.");
+      } else {
+        toast.error(`Erreur de connexion : ${error.message}`);
+      }
+    } else {
+      toast.success("Connexion réussie !");
     }
   };
 
