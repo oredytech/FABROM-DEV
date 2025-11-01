@@ -14,6 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import fabromLogo from "@/assets/fabrom-logo.png";
 import { useAuth } from "@/hooks/useAuth";
 import { UserAvatar } from "@/components/UserAvatar";
+import { useAutoSave } from "@/hooks/useAutoSave";
 
 const Index = () => {
   const navigate = useNavigate();
@@ -29,12 +30,40 @@ const Index = () => {
   const [filesKey, setFilesKey] = useState(0);
   const [showFileManager, setShowFileManager] = useState(false);
   const [showAssistant, setShowAssistant] = useState(true);
+  
+  const { saveState, loadState, addHistoryEntry } = useAutoSave(user?.id, directoryHandleRef.current);
 
   useEffect(() => {
     if (!loading && !user) {
       navigate("/auth");
     }
   }, [user, loading, navigate]);
+
+  // Handle state restoration
+  useEffect(() => {
+    const handleRestore = (event: CustomEvent) => {
+      const state = event.detail;
+      if (state.code) setCode(state.code);
+      if (state.currentFile) setCurrentFile(state.currentFile);
+      if (state.conversationId) setConversationId(state.conversationId);
+      toast.success("Travail restauré avec succès!");
+      addHistoryEntry("restore", state.currentFile, "État restauré");
+    };
+
+    window.addEventListener('fabrom:restore-state' as any, handleRestore as any);
+    return () => window.removeEventListener('fabrom:restore-state' as any, handleRestore as any);
+  }, [addHistoryEntry]);
+
+  // Auto-save state to localStorage
+  useEffect(() => {
+    if (!user || !code) return;
+    
+    const timeoutId = setTimeout(() => {
+      saveState({ code, currentFile, conversationId });
+    }, 2000);
+
+    return () => clearTimeout(timeoutId);
+  }, [code, currentFile, conversationId, user, saveState]);
 
   const saveCodeToFile = async (fileName: string = currentFile, fileCode: string = code) => {
     if (!fileCode || !directoryHandleRef.current) {
@@ -66,6 +95,9 @@ const Index = () => {
       await writable.write(fileCode);
       await writable.close();
       toast.success(`Fichier ${fileName} enregistré avec succès!`);
+      
+      // Add to history
+      await addHistoryEntry("save", fileName, `${fileCode.length} caractères`);
     } catch (error) {
       console.error("Error saving file:", error);
       toast.error("Erreur lors de l'enregistrement");
@@ -74,6 +106,7 @@ const Index = () => {
 
   const handleFileCreate = async (fileName: string, content: string) => {
     await saveCodeToFile(fileName, content);
+    await addHistoryEntry("create", fileName, "Nouveau fichier créé");
     setFilesKey(prev => prev + 1);
   };
 
@@ -86,6 +119,7 @@ const Index = () => {
       const content = await file.text();
       setCode(content);
       setCurrentFile(fileName);
+      await addHistoryEntry("open", fileName, "Fichier ouvert");
     } catch (error) {
       console.error("Error loading file:", error);
       setCode("");
@@ -96,6 +130,7 @@ const Index = () => {
   const handleVersionRestore = async (content: string, version: number) => {
     setCode(content);
     await saveCodeToFile(currentFile, content);
+    await addHistoryEntry("restore", currentFile, `Version ${version} restaurée`);
   };
 
   // Save code automatically when it changes using File System Access API
@@ -199,14 +234,18 @@ const Index = () => {
       
       if (permission === "granted") {
         directoryHandleRef.current = handle;
+        saveState({ directoryName: handle.name });
         toast.success(`Dossier sélectionné : ${handle.name}`);
         await loadExistingFiles(handle);
+        await addHistoryEntry("directory", handle.name, "Dossier sélectionné");
       } else if (permission === "prompt") {
         const newPermission = await handle.requestPermission({ mode: "readwrite" });
         if (newPermission === "granted") {
           directoryHandleRef.current = handle;
+          saveState({ directoryName: handle.name });
           toast.success(`Dossier sélectionné : ${handle.name}`);
           await loadExistingFiles(handle);
+          await addHistoryEntry("directory", handle.name, "Dossier sélectionné");
         } else {
           toast.error("Permission refusée. Veuillez autoriser l'accès en écriture.");
         }
