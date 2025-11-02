@@ -61,9 +61,9 @@ Guidelines:
 9. Never mix code from different pages in one file.
 10. Keep design consistency across pages.
 11. Use markers for files:
-    FILE:filename.html
+    ~~~FILE:filename.html
     [HTML content]
-    
+    ~~~
     
 Image Integration:
 - Use Cloudinary URLs exactly as provided when supplied by user.
