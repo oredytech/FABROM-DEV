@@ -47,6 +47,7 @@ export function ChatInterface({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const { uploadImage, isUploading } = useCloudinaryUpload();
+  const CONVERSATION_FILE = ".fabrom-conversation.json";
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -55,6 +56,39 @@ export function ChatInterface({
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Load conversation history from local file
+  useEffect(() => {
+    const loadConversation = async () => {
+      if (!directoryHandle) return;
+
+      try {
+        const fileHandle = await directoryHandle.getFileHandle(CONVERSATION_FILE);
+        const file = await fileHandle.getFile();
+        const content = await file.text();
+        const savedMessages = JSON.parse(content);
+        setMessages(savedMessages);
+      } catch (error) {
+        // File doesn't exist yet, that's ok
+      }
+    };
+
+    loadConversation();
+  }, [directoryHandle]);
+
+  // Save conversation history to local file
+  const saveConversationToFile = async (newMessages: Message[]) => {
+    if (!directoryHandle) return;
+
+    try {
+      const fileHandle = await directoryHandle.getFileHandle(CONVERSATION_FILE, { create: true });
+      const writable = await fileHandle.createWritable();
+      await writable.write(JSON.stringify(newMessages, null, 2));
+      await writable.close();
+    } catch (error) {
+      console.error("Error saving conversation to file:", error);
+    }
+  };
 
   const saveConversation = async (newMessages: Message[], files: Record<string, string>) => {
     if (!directoryHandle || !user) return;
@@ -124,12 +158,18 @@ export function ChatInterface({
   };
 
   const sendMessage = async () => {
+    if (!directoryHandle) {
+      sonnerToast.error("Veuillez d'abord sélectionner un dossier avant d'envoyer un message");
+      return;
+    }
+    
     if (!input.trim() || isLoading) return;
 
     const userMessage: Message = { role: "user", content: input };
     const currentImages = uploadedImages.filter(img => !img.isLoading);
     const updatedMessages = [...messages, userMessage];
     setMessages(updatedMessages);
+    await saveConversationToFile(updatedMessages);
     setInput("");
     setUploadedImages([]); // Clear images after sending
     setIsLoading(true);
@@ -289,6 +329,7 @@ export function ChatInterface({
       
       const finalMessages = [...updatedMessages, { role: "assistant" as const, content: textOnly || "Code généré avec succès !" }];
       setMessages(finalMessages);
+      await saveConversationToFile(finalMessages);
 
       // Save conversation and file versions
       if (Object.keys(extractedFiles).length > 0) {
@@ -425,17 +466,33 @@ export function ChatInterface({
           {messages.map((message, index) => (
             <div
               key={index}
-              className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+              className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}
             >
+              {message.role === "assistant" && (
+                <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center bg-gradient-assistant">
+                  <img src="/src/assets/fabrom-logo.png" alt="FABROM" className="w-6 h-6 object-contain" />
+                </div>
+              )}
               <div
-                className={`max-w-[80%] rounded-lg p-3 ${
+                className={`max-w-[70%] rounded-lg p-3 ${
                   message.role === "user"
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-secondary text-secondary-foreground"
+                    ? "bg-gradient-primary text-white"
+                    : "bg-gradient-assistant text-white"
                 }`}
               >
                 <p className="text-sm whitespace-pre-wrap">{message.content}</p>
               </div>
+              {message.role === "user" && user && (
+                <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center bg-gradient-primary">
+                  {user.user_metadata?.avatar_url ? (
+                    <img src={user.user_metadata.avatar_url} alt="User" className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-white font-semibold text-sm">
+                      {user.email?.[0].toUpperCase()}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           ))}
           {isLoading && (
@@ -461,10 +518,10 @@ export function ChatInterface({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Décrivez ce que vous voulez créer..."
+              placeholder={directoryHandle ? "Décrivez ce que vous voulez créer..." : "Sélectionnez d'abord un dossier..."}
               className="resize-none bg-secondary border-border"
               rows={3}
-              disabled={isLoading}
+              disabled={!directoryHandle || isLoading}
             />
             {uploadedImages.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-2">
@@ -496,7 +553,7 @@ export function ChatInterface({
           <div className="flex flex-col gap-2">
             <Button
               onClick={() => fileInputRef.current?.click()}
-              disabled={isLoading || isUploading}
+              disabled={!directoryHandle || isLoading || isUploading}
               variant="outline"
               size="icon"
               title="Upload des images vers Cloudinary"
@@ -505,7 +562,7 @@ export function ChatInterface({
             </Button>
             <Button
               onClick={sendMessage}
-              disabled={!input.trim() || isLoading}
+              disabled={!directoryHandle || !input.trim() || isLoading}
               className="self-end"
               size="icon"
             >
