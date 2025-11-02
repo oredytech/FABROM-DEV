@@ -103,7 +103,7 @@ Enable FABROM users to feel they are collaborating with a visionary developer-de
       }
     }
 
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview:streamGenerateContent?key=${GEMINI_API_KEY}&alt=sse`, {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?key=${GEMINI_API_KEY}&alt=sse`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
