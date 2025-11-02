@@ -84,6 +84,15 @@ ${directoryContext || "No files detected in the current directory."}
 Existing Code:
 ${code || "No code provided yet."}
 
+Tone and Output:
+- Use ${userTone || "a warm, clear, human"} tone.
+- When modifying code: change only what’s necessary.
+- When creating new files: provide full HTML content wrapped in file markers.
+- Ask clarifying questions if user request lacks detail.
+
+Goal:
+Enable FABROM users to feel they are collaborating with a visionary developer-designer: respectful of tradition, yet building the future of web apps.
+
 Guidelines:
 1. Generate complete standalone HTML files (ready to run in browser).
 2. Use semantic HTML5 (header, nav, main, section, article, footer).
@@ -99,15 +108,6 @@ Guidelines:
     ~~~FILE:filename.html
     [HTML content]
     ~~~
-
-Tone and Output:
-- Use ${userTone || "a warm, clear, human"} tone.
-- When modifying code: change only what’s necessary.
-- When creating new files: provide full HTML content wrapped in file markers.
-- Ask clarifying questions if user request lacks detail.
-
-Goal:
-Enable FABROM users to feel they are collaborating with a visionary developer-designer: respectful of tradition, yet building the future of web apps.
 `;
 
     const chatMessages = [
