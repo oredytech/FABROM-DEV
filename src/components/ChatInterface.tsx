@@ -521,7 +521,17 @@ export function ChatInterface({
       {/* Messages */}
       <ScrollArea className="flex-1 p-4">
         <div className="space-y-4">
-          {messages.length === 0 && (
+          {!directoryHandle && (
+            <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4 mb-4">
+              <p className="text-sm text-yellow-700 dark:text-yellow-300 font-medium">
+                ⚠️ Sélectionnez d'abord un dossier
+              </p>
+              <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
+                Utilisez le bouton "Choisir un dossier" en haut pour sélectionner où sauvegarder vos fichiers avant de commencer.
+              </p>
+            </div>
+          )}
+          {messages.length === 0 && directoryHandle && (
             <div className="text-center text-muted-foreground py-8">
               <Sparkles className="w-12 h-12 mx-auto mb-4 opacity-50" />
               <p className="text-sm">Commencez une conversation pour générer du code</p>
@@ -534,25 +544,25 @@ export function ChatInterface({
               className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}
             >
               {message.role === "assistant" && (
-                <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center bg-gradient-assistant">
+                <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center bg-primary">
                   <img src="/src/assets/fabrom-logo.png" alt="FABROM" className="w-6 h-6 object-contain" />
                 </div>
               )}
               <div
-                className={`max-w-[70%] rounded-lg p-3 ${
+                className={`max-w-[70%] rounded-lg p-3 break-words ${
                   message.role === "user"
-                    ? "bg-gradient-primary text-white"
-                    : "bg-gradient-assistant text-white"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-foreground"
                 }`}
               >
-                <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                <p className="text-sm whitespace-pre-wrap break-words">{message.content}</p>
               </div>
               {message.role === "user" && user && (
-                <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center bg-gradient-primary">
+                <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center bg-primary">
                   {user.user_metadata?.avatar_url ? (
                     <img src={user.user_metadata.avatar_url} alt="User" className="w-full h-full object-cover" />
                   ) : (
-                    <span className="text-white font-semibold text-sm">
+                    <span className="text-primary-foreground font-semibold text-sm">
                       {user.email?.[0].toUpperCase()}
                     </span>
                   )}
