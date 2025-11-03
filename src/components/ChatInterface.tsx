@@ -254,21 +254,35 @@ export function ChatInterface({
     try {
       const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`;
       
-      const response = await fetch(CHAT_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-        },
-        body: JSON.stringify({
-          userId: user?.id,
-          messages: updatedMessages,
-          code,
-          directoryContext,
-          images: currentImages.length > 0 ? currentImages : undefined,
-          projectName: "FABROM"
-        }),
-      });
+      // 🧠 Avant l'appel au fetch :
+let userId = user?.id;
+
+// Si l’utilisateur n’est pas connecté à Supabase → on crée un ID temporaire
+if (!userId) {
+  userId = localStorage.getItem("fabrom_guest_id");
+  if (!userId) {
+    userId = "guest_" + crypto.randomUUID();
+    localStorage.setItem("fabrom_guest_id", userId);
+  }
+}
+
+// 🔥 Appel API avec userId garanti
+const response = await fetch(CHAT_URL, {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+  },
+  body: JSON.stringify({
+    userId, // 👈 toujours présent désormais
+    messages: updatedMessages,
+    code,
+    directoryContext,
+    images: currentImages.length > 0 ? currentImages : undefined,
+    projectName: "FABROM",
+  }),
+});
+
 
       if (response.status === 402) {
         const errorData = await response.json();
