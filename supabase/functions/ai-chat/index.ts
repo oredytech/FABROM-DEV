@@ -1,347 +1,255 @@
-// server.ts
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, accept-language",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, accept-language",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-// --- In-memory user memory (simple). Pour production, remplace par DB persistante.
+// ===== Mémoire utilisateur (RAM) =====
 const userMemory: Record<string, any> = {};
 
-// --- Extract files wrapped by ~~~FILE:filename\n ... ~~~
+// ===== Utilitaires =====
 function extractHTMLFiles(aiResponse: string): Record<string, string> {
   const files: Record<string, string> = {};
   const regex = /~~~FILE:(.+?)\n([\s\S]*?)~~~/g;
   let match;
   while ((match = regex.exec(aiResponse)) !== null) {
-    const filename = match[1].trim();
-    const content = match[2].trim();
-    files[filename] = content;
+    files[match[1].trim()] = match[2].trim();
   }
   return files;
 }
 
-// --- Simple language detection for shortcut replies (very light heuristic)
-function detectLanguageFromText(text: string | undefined, acceptLangHeader?: string): "fr" | "en" {
-  if (!text) return acceptLangHeader && acceptLangHeader.startsWith("fr") ? "fr" : "en";
-  const t = text.toLowerCase();
-  const frenchKeywords = ["qui", "créé", "créateur", "créatrice", "développé", "developpeur", "d'où", "d ou", "qui t'"];
-  for (const kw of frenchKeywords) {
-    if (t.includes(kw)) return "fr";
-  }
-  // fallback to Accept-Language header
-  if (acceptLangHeader && acceptLangHeader.startsWith("fr")) return "fr";
-  return "en";
+function detectLanguage(text?: string, acceptLang?: string): "fr" | "en" {
+  if (!text) return acceptLang?.startsWith("fr") ? "fr" : "en";
+  const lower = text.toLowerCase();
+  const frWords = ["créé", "fabrom", "développeur", "qui t", "d'où"];
+  if (frWords.some((w) => lower.includes(w))) return "fr";
+  return acceptLang?.startsWith("fr") ? "fr" : "en";
 }
 
-// --- Official Fabrom identity texts (FR & EN)
-const FABROM_OFFICIAL_FR = `FABROM est un assistant de développement web alimenté par l'IA, créé et maintenu par Oredy MUSANDA.
-Caractéristiques principales :
-- Création par conversation : créez des sites web en décrivant vos besoins.
-- Technologies modernes : HTML5, CSS3, JavaScript (ES6+), responsive design.
-- Intégration d'images : support Cloudinary et recherche d'images libres.
-- Multi-page & navigation cohérente.
-Contact du créateur :
-- Oredy MUSANDA — https://oredytech.com
-- Email : oredymusanda@gmail.com
-- Téléphone : +243 996 886 079
-
-Souhaitez-vous que je vous aide à modifier ou créer une page maintenant ?`;
-
-const FABROM_OFFICIAL_EN = `FABROM is an AI-powered web development assistant created and maintained by Oredy MUSANDA.
-Main features:
-- Conversational creation: build websites by describing what you want.
-- Modern technologies: HTML5, CSS3, JavaScript (ES6+), responsive design.
-- Image integration: Cloudinary support and free-image search.
-- Multi-page generation with consistent navigation.
-Creator contact:
-- Oredy MUSANDA — https://oredytech.com
-- Email: oredymusanda@gmail.com
-- Phone: +243 996 886 079
-
-Do you want me to help you modify or create a page now?`;
-
-// --- Helper: checks if the last user message asks about identity
-function isIdentityQuestion(text: string | undefined): boolean {
+function isIdentityQuestion(text?: string): boolean {
   if (!text) return false;
   const t = text.toLowerCase();
   const patterns = [
-    "qui t", "qui es tu", "qui es-tu", "qui es tu", "qui t'",
-    "qui t a créé", "qui t'a créé", "qui t a crée", "qui t'a crée", "qui t a créé", "qui t a créé", "qui t a creer",
-    "who created you", "who made you", "who is your creator", "who created fabrom", "who created you?",
-    "who made fabrom"
+    "qui es-tu", "qui t", "qui t’a créé", "who created you", "who made fabrom",
   ];
-  for (const p of patterns) if (t.includes(p)) return true;
-  return false;
+  return patterns.some((p) => t.includes(p));
 }
 
-// --- Main server
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+function convertMessagesToGemini(messages: any[]) {
+  const contents = [];
+  for (const msg of messages) {
+    const role = msg.role === "assistant" ? "model" : "user";
+    if (Array.isArray(msg.content)) {
+      const textPart = msg.content.find((p: any) => p.type === "text")?.text || "";
+      const imageParts = msg.content
+        .filter((p: any) => p.type === "image_url")
+        .map((p: any) => ({
+          inlineData: { mimeType: "image/png", data: p.image_url.url },
+        }));
+      contents.push({ role, parts: [{ text: textPart }, ...imageParts] });
+    } else {
+      contents.push({ role, parts: [{ text: msg.content }] });
+    }
   }
+  return contents;
+}
+
+// ===== Identité FABROM =====
+const FABROM_IDENTITY_FR = `
+FABROM est un assistant de développement web alimenté par l'IA, créé et maintenu par Oredy MUSANDA.
+Son rôle : aider à créer et corriger des sites web modernes en HTML5, CSS3, JavaScript (ES6+).
+Ton poétique, clair, motivant, et respectueux des traditions.
+Toujours se présenter comme FABROM créé par Oredy MUSANDA.
+Jamais mentionner Google, OpenAI, Anthropic ou autres comme créateur.
+`;
+
+const FABROM_IDENTITY_EN = `
+FABROM is an AI-powered web development assistant created and maintained by Oredy MUSANDA.
+He helps you build and improve modern websites using HTML5, CSS3, and JavaScript (ES6+).
+His tone is poetic, clear, and motivating, respectful of culture and tradition.
+Always identify as FABROM created by Oredy MUSANDA.
+Never claim to be built by Google, OpenAI, or any other company.
+`;
+
+// ===== Serveur principal =====
+serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const body = await req.json().catch(() => null);
-    if (!body) throw new Error("Invalid JSON body.");
-
+    const body = await req.json();
     const {
       userId,
       messages,
-      code,
-      directoryContext,
-      images,
       projectName,
       projectGoal,
       stylePreference,
       userTone,
-      mode, // optional: Creative, Professional, Debug, Teaching (future)
+      images,
+      mode,
     } = body;
 
-    if (!userId) throw new Error("Missing userId for session tracking.");
+    if (!userId) throw new Error("Missing userId");
+    const authHeader = req.headers.get("Authorization");
+    const acceptLang = req.headers.get("accept-language") || "";
 
-    // Initialize Supabase client
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) throw new Error("Missing authorization header");
-    
+    // ---- Connexion Supabase
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseKey = Deno.env.get("SUPABASE_ANON_KEY");
-    if (!supabaseUrl || !supabaseKey) throw new Error("Supabase configuration missing");
-    
+    if (!supabaseUrl || !supabaseKey) throw new Error("Supabase env missing");
     const supabase = createClient(supabaseUrl, supabaseKey, {
-      global: { headers: { Authorization: authHeader } }
+      global: { headers: { Authorization: authHeader! } },
     });
 
-    // Check and update user credits
+    // ---- Vérif crédits utilisateur
     const { data: userCredits, error: creditsError } = await supabase
-      .from('user_credits')
-      .select('*')
-      .eq('user_id', userId)
+      .from("user_credits")
+      .select("*")
+      .eq("user_id", userId)
       .single();
 
-    if (creditsError) {
-      console.error("Error fetching credits:", creditsError);
-      throw new Error("Unable to fetch user credits");
-    }
-
-    // Check if credits need to be reset (24 hours for free users)
-    if (!userCredits.subscription_active) {
-      const lastReset = new Date(userCredits.last_reset_date);
-      const now = new Date();
-      const hoursSinceReset = (now.getTime() - lastReset.getTime()) / (1000 * 60 * 60);
-      
-      if (hoursSinceReset >= 24) {
-        // Reset credits to 10
-        const { error: resetError } = await supabase
-          .from('user_credits')
-          .update({ 
-            credits_remaining: 10, 
-            last_reset_date: now.toISOString() 
-          })
-          .eq('user_id', userId);
-        
-        if (resetError) {
-          console.error("Error resetting credits:", resetError);
-        } else {
-          userCredits.credits_remaining = 10;
-        }
-      }
-    }
-
-    // Check if user has credits
+    if (creditsError) throw new Error("Unable to fetch credits");
     if (userCredits.credits_remaining <= 0) {
       return new Response(
-        JSON.stringify({ 
-          error: "Vous n'avez plus de crédits. Veuillez acheter un abonnement pour continuer.",
-          needsPayment: true 
-        }), 
-        {
-          status: 402,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        JSON.stringify({
+          error: "Plus de crédits. Rechargez pour continuer.",
+          needsPayment: true,
+        }),
+        { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
-    // Initialize memory for user if absent
-    if (!userMemory[userId]) {
-      userMemory[userId] = {
-        projects: {},
-        lastProject: null,
-        preferences: {},
-      };
-    }
-
-    // Check Accept-Language header for language fallback
-    const acceptLang = req.headers.get("accept-language") || "";
-
-    // Shortcut: if last user message asks identity, reply locally (no API call)
-    const lastUserMessage = Array.isArray(messages) && messages.length ? messages[messages.length - 1].content : "";
-    if (isIdentityQuestion(lastUserMessage)) {
-      const lang = detectLanguageFromText(lastUserMessage, acceptLang);
-      const replyText = lang === "fr" ? FABROM_OFFICIAL_FR : FABROM_OFFICIAL_EN;
-
-      // Keep memory: store that user asked identity
-      userMemory[userId].lastIdentityQuery = { when: new Date().toISOString() };
-
-      return new Response(JSON.stringify({ htmlFiles: {}, rawResponse: replyText }), {
+    // ---- Si question d'identité → réponse locale
+    const lastMessage = messages?.[messages.length - 1]?.content || "";
+    if (isIdentityQuestion(lastMessage)) {
+      const lang = detectLanguage(lastMessage, acceptLang);
+      const reply = lang === "fr" ? FABROM_IDENTITY_FR : FABROM_IDENTITY_EN;
+      return new Response(JSON.stringify({ htmlFiles: {}, rawResponse: reply }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Read API key
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured in environment variables.");
-    }
+    // ---- Décrémente un crédit
+    await supabase
+      .from("user_credits")
+      .update({ credits_remaining: userCredits.credits_remaining - 1 })
+      .eq("user_id", userId);
 
-    // Build identity & persistent context to inject into every request
-    const aiIdentityContext = `
-You are FABROM, an AI web development assistant created and maintained by Oredy MUSANDA.
-Website: https://oredytech.com
-Contacts: oredymusanda@gmail.com | +243 996 886 079
-Never claim to be developed or owned by Google, OpenAI, Anthropic or any other company.
-Always present yourself as FABROM created by Oredy MUSANDA when asked.
+    // ---- Préparation du contexte complet
+    const aiIdentity = `
+Tu es FABROM, assistant IA de développement web créé et maintenu par Oredy MUSANDA.
+Site : https://oredytech.com
+Email : oredymusanda@gmail.com
+Téléphone : +243 996 886 079
+Langues : français et anglais (détecte automatiquement).
+Ton : clair, poétique, motivant, respectueux des traditions.
+Jamais de réponses vagues ou génériques.
 `;
 
-    // Build project context from incoming fields or stored memory
-    const remembered = userMemory[userId];
-    const effectiveProjectName = projectName || remembered.lastProject || "default";
     const projectContext = `
-Project Context:
-- Project name: ${effectiveProjectName}
-- Main goal: ${projectGoal || (remembered.projects[effectiveProjectName]?.goal ?? "Help the user build a modern, functional web application.")}
-- Preferred visual style: ${stylePreference || (remembered.preferences.style || "Modern and responsive")}
-- User tone and personality: ${userTone || (remembered.preferences.userTone || "Friendly, clear, and creative")}
+Contexte du projet :
+- Nom : ${projectName || "projet par défaut"}
+- Objectif : ${projectGoal || "Créer un site web moderne et fonctionnel"}
+- Style visuel : ${stylePreference || "moderne et responsive"}
+- Ton de l'utilisateur : ${userTone || "amical et clair"}
+- Mode : ${mode || "standard"}
 `;
 
-    // System prompt: identity + behavior + strict rules (short responses, no chat in preview, nav links)
-    const systemPrompt = `
-${aiIdentityContext}
-
-${projectContext}
-
-Core behavior and strict rules:
-- Detect the user's language from their messages and reply in that language.
-- If the request does NOT require code generation/modification:
-  - Do NOT touch or generate code.
-  - Reply in 1-2 short sentences max.
-  - Use one of these forms (translate to user's language automatically):
-    - "I am now reviewing the code in the file (filename)."
-    - "Done reviewing, refresh the live preview to see changes."
-    - "C'est noté. Je prépare la mise à jour." / "C'est fait. Actualise la prévisualisation."
-  - Never provide long paragraphs unless explicitly asked.
-- If the request DOES require code generation or modification:
-  - Analyze the target file(s), detect dependencies and shared components.
-  - For multi-page projects, always generate a consistent header/navigation in every page using relative links (e.g. <a href="index.html">Home</a>).
-  - Return files wrapped strictly in markers:
+    const coreRules = `
+Règles de comportement :
+- Détecte la langue du message utilisateur et réponds dans cette langue.
+- Si la requête ne demande pas de code → réponse courte (1-2 phrases max).
+- Si elle demande du code :
+  - Analyse les dépendances.
+  - Génère des fichiers en les entourant de :
     ~~~FILE:filename.html
-    [HTML content]
+    [code]
     ~~~
-  - Ensure styles/scripts are linked via relative paths and shared styles are consistent.
-  - After completion, respond with a short confirmation:
-    - "I have finished the correction, is this okay?"
-    - "Done reviewing. Refresh the live preview to see the changes."
-- NEVER include or render chat conversation text inside generated HTML or preview outputs.
-- Prioritize user-provided Cloudinary images; if none provided, fetch free images from Unsplash/Pexels/Pixabay with attribution.
-- Keep memory: store project files, last modifications, preferences, images used.
-
-Tone:
-- Warm, clear, concise, sometimes poetic if context allows.
-- Respectful of tradition and local culture.
-
-Modes:
-- Support modes (Creative, Professional, Debug, Teaching) if requested (not enforced here unless mode provided).
+  - N'inclus jamais de texte de conversation dans le code.
+  - Garde des styles et scripts cohérents entre les pages.
+  - Génère une navigation uniforme entre pages.
+  - Termine par une courte phrase confirmant l’action ("C'est fait", "Done reviewing", etc.)
+- Utilise des images Cloudinary si fournies, sinon des images libres.
+- Sois concis, élégant, et créatif.
 `;
 
-    // Compose messages to send to the model
+    const systemPrompt = `
+${aiIdentity}
+${projectContext}
+${coreRules}
+`;
+
+    // ---- Compose les messages
     const chatMessages = [
       { role: "system", content: systemPrompt },
-      // include a compact memory summary for more context (non-exhaustive)
-      {
-        role: "system",
-        content: `Memory Summary: last project = ${remembered.lastProject || "none"}, stored projects = ${Object.keys(remembered.projects).length}`,
-      },
-      // append user messages (passed-through)
       ...(Array.isArray(messages) ? messages : []),
     ];
 
-    // If images provided, append them as structured entries to last user message
-    if (images && Array.isArray(images) && images.length > 0) {
+    if (images?.length > 0) {
       const lastIdx = chatMessages.length - 1;
-      if (chatMessages[lastIdx] && chatMessages[lastIdx].role === "user") {
-        const imageContent = images.map((img: { url: string; name?: string }) => ({
-          type: "image_url",
-          image_url: { url: img.url },
-        }));
-        // replace last user message content with a structured content array
-        chatMessages[lastIdx] = {
-          role: "user",
-          content: [
-            { type: "text", text: chatMessages[lastIdx].content },
-            ...imageContent,
-          ],
-        };
-      }
+      const imageContent = images.map((img: any) => ({
+        type: "image_url",
+        image_url: { url: img.url },
+      }));
+      chatMessages[lastIdx] = {
+        role: "user",
+        content: [
+          { type: "text", text: chatMessages[lastIdx].content },
+          ...imageContent,
+        ],
+      };
     }
 
-    // Decrement user credits BEFORE streaming the response
-    const { error: updateError } = await supabase
-      .from('user_credits')
-      .update({ credits_remaining: userCredits.credits_remaining - 1 })
-      .eq('user_id', userId);
-    
-    if (updateError) {
-      console.error("Error updating credits:", updateError);
-    }
+    // ---- Conversion format Gemini
+    const geminiMessages = convertMessagesToGemini(chatMessages);
 
-    // Call Lovable AI gateway (Gemini 2.5 Flash)
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
+    // ---- Appel API Gemini 2.5 Flash (stream)
+    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+    if (!GEMINI_API_KEY) throw new Error("Missing GEMINI_API_KEY");
+
+    const url =
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent";
+
+    const stream = new ReadableStream({
+      async start(controller) {
+        const res = await fetch(`${url}?key=${GEMINI_API_KEY}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ contents: geminiMessages }),
+        });
+
+        if (!res.ok || !res.body) {
+          controller.enqueue(
+            `data: ${JSON.stringify({ error: "Erreur API Gemini" })}\n\n`,
+          );
+          controller.close();
+          return;
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value);
+          controller.enqueue(chunk);
+        }
+        controller.close();
       },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: chatMessages,
-        stream: true,
-      }),
     });
 
-    if (!response.ok) {
-      if (response.status === 429) {
-        return new Response(JSON.stringify({ error: "Limite de taux atteinte, veuillez réessayer plus tard." }), {
-          status: 429,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "Paiement requis, veuillez ajouter des fonds à votre compte Lovable AI." }), {
-          status: 402,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      const errText = await response.text().catch(() => "");
-      console.error("AI gateway error:", response.status, errText);
-      return new Response(JSON.stringify({ error: `Erreur du service IA: ${response.status}` }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // Stream the response directly to the client
-    return new Response(response.body, {
+    return new Response(stream, {
       headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
     });
-
-  } catch (error) {
-    console.error("Server error:", error);
-    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+  } catch (err) {
+    console.error("Server error:", err);
+    return new Response(
+      JSON.stringify({ error: err.message }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   }
 });
