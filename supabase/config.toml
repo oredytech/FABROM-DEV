@@ -1,1 +1,10 @@
 project_id = "vhfjgyneelyuwpalqujm"
+
+[functions.ai-chat]
+verify_jwt = true
+
+[functions.process-payment]
+verify_jwt = true
+
+[functions.upload-to-cloudinary]
+verify_jwt = false

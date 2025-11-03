@@ -43,6 +43,7 @@ export function ChatInterface({
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [uploadedImages, setUploadedImages] = useState<Array<{url: string, name: string, isLoading?: boolean}>>([]);
+  const [creditsRemaining, setCreditsRemaining] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -56,6 +57,32 @@ export function ChatInterface({
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Fetch user credits
+  useEffect(() => {
+    const fetchCredits = async () => {
+      if (!user) return;
+      
+      try {
+        const { data, error } = await supabase
+          .from('user_credits')
+          .select('credits_remaining')
+          .eq('user_id', user.id)
+          .single();
+        
+        if (error) {
+          console.error("Error fetching credits:", error);
+          return;
+        }
+        
+        setCreditsRemaining(data.credits_remaining);
+      } catch (error) {
+        console.error("Error fetching credits:", error);
+      }
+    };
+
+    fetchCredits();
+  }, [user]);
 
   // Load conversation history from local file
   useEffect(() => {
@@ -234,12 +261,32 @@ export function ChatInterface({
           Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
         },
         body: JSON.stringify({
-      messages: updatedMessages,
-      code,
-      directoryContext,
-      images: currentImages.length > 0 ? currentImages : undefined,
-    }),
+          userId: user?.id,
+          messages: updatedMessages,
+          code,
+          directoryContext,
+          images: currentImages.length > 0 ? currentImages : undefined,
+          projectName: "FABROM"
+        }),
       });
+
+      if (response.status === 402) {
+        const errorData = await response.json();
+        setIsLoading(false);
+        setMessages((prev) => prev.slice(0, -1)); // Remove loading message
+        
+        if (errorData.needsPayment) {
+          sonnerToast.error(errorData.error, {
+            action: {
+              label: "Acheter des crédits",
+              onClick: () => window.location.href = "/subscription"
+            }
+          });
+        } else {
+          sonnerToast.error(errorData.error);
+        }
+        return;
+      }
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -342,6 +389,19 @@ export function ChatInterface({
         }
       }
 
+      // Refresh credits after successful message
+      if (user) {
+        const { data } = await supabase
+          .from('user_credits')
+          .select('credits_remaining')
+          .eq('user_id', user.id)
+          .single();
+        
+        if (data) {
+          setCreditsRemaining(data.credits_remaining);
+        }
+      }
+
     } catch (error) {
       console.error("Chat error:", error);
       setMessages((prev) => prev.slice(0, -1));
@@ -433,6 +493,11 @@ export function ChatInterface({
         <div className="flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-white" />
           <h2 className="text-sm font-semibold text-white">Assistant IA</h2>
+          {creditsRemaining !== null && (
+            <span className="text-xs text-white/80 bg-white/10 px-2 py-0.5 rounded-full">
+              {creditsRemaining} crédits
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {/* Mobile: Show user avatar in assistant header */}

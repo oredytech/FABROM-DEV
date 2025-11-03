@@ -1,5 +1,6 @@
 // server.ts
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -101,6 +102,68 @@ serve(async (req) => {
     } = body;
 
     if (!userId) throw new Error("Missing userId for session tracking.");
+
+    // Initialize Supabase client
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) throw new Error("Missing authorization header");
+    
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseKey = Deno.env.get("SUPABASE_ANON_KEY");
+    if (!supabaseUrl || !supabaseKey) throw new Error("Supabase configuration missing");
+    
+    const supabase = createClient(supabaseUrl, supabaseKey, {
+      global: { headers: { Authorization: authHeader } }
+    });
+
+    // Check and update user credits
+    const { data: userCredits, error: creditsError } = await supabase
+      .from('user_credits')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+
+    if (creditsError) {
+      console.error("Error fetching credits:", creditsError);
+      throw new Error("Unable to fetch user credits");
+    }
+
+    // Check if credits need to be reset (24 hours for free users)
+    if (!userCredits.subscription_active) {
+      const lastReset = new Date(userCredits.last_reset_date);
+      const now = new Date();
+      const hoursSinceReset = (now.getTime() - lastReset.getTime()) / (1000 * 60 * 60);
+      
+      if (hoursSinceReset >= 24) {
+        // Reset credits to 10
+        const { error: resetError } = await supabase
+          .from('user_credits')
+          .update({ 
+            credits_remaining: 10, 
+            last_reset_date: now.toISOString() 
+          })
+          .eq('user_id', userId);
+        
+        if (resetError) {
+          console.error("Error resetting credits:", resetError);
+        } else {
+          userCredits.credits_remaining = 10;
+        }
+      }
+    }
+
+    // Check if user has credits
+    if (userCredits.credits_remaining <= 0) {
+      return new Response(
+        JSON.stringify({ 
+          error: "Vous n'avez plus de crédits. Veuillez acheter un abonnement pour continuer.",
+          needsPayment: true 
+        }), 
+        {
+          status: 402,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
 
     // Initialize memory for user if absent
     if (!userMemory[userId]) {
@@ -224,6 +287,16 @@ Modes:
       }
     }
 
+    // Decrement user credits BEFORE streaming the response
+    const { error: updateError } = await supabase
+      .from('user_credits')
+      .update({ credits_remaining: userCredits.credits_remaining - 1 })
+      .eq('user_id', userId);
+    
+    if (updateError) {
+      console.error("Error updating credits:", updateError);
+    }
+
     // Call Lovable AI gateway (Gemini 2.5 Flash)
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -234,39 +307,34 @@ Modes:
       body: JSON.stringify({
         model: "google/gemini-2.5-flash",
         messages: chatMessages,
-        stream: false, // easier to handle whole text; change to true if you stream client-side
+        stream: true,
       }),
     });
 
     if (!response.ok) {
+      if (response.status === 429) {
+        return new Response(JSON.stringify({ error: "Limite de taux atteinte, veuillez réessayer plus tard." }), {
+          status: 429,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (response.status === 402) {
+        return new Response(JSON.stringify({ error: "Paiement requis, veuillez ajouter des fonds à votre compte Lovable AI." }), {
+          status: 402,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
       const errText = await response.text().catch(() => "");
       console.error("AI gateway error:", response.status, errText);
-      return new Response(JSON.stringify({ error: `AI gateway error: ${response.status} ${errText}` }), {
+      return new Response(JSON.stringify({ error: `Erreur du service IA: ${response.status}` }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const aiText = await response.text();
-
-    // Extract files for preview (only code)
-    const htmlFiles = extractHTMLFiles(aiText);
-
-    // Save to memory if files were returned
-    if (!userMemory[userId].projects[effectiveProjectName]) {
-      userMemory[userId].projects[effectiveProjectName] = { files: {}, goal: projectGoal || null, createdAt: new Date().toISOString() };
-    }
-    // Merge new files into memory (do not erase previous files if none returned)
-    userMemory[userId].projects[effectiveProjectName].files = {
-      ...userMemory[userId].projects[effectiveProjectName].files,
-      ...htmlFiles,
-    };
-    userMemory[userId].projects[effectiveProjectName].lastModification = new Date().toISOString();
-    userMemory[userId].lastProject = effectiveProjectName;
-
-    // Response payload: htmlFiles for preview, rawResponse for chat log
-    return new Response(JSON.stringify({ htmlFiles, rawResponse: aiText }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    // Stream the response directly to the client
+    return new Response(response.body, {
+      headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
     });
 
   } catch (error) {
