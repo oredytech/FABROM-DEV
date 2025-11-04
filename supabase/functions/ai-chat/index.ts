@@ -76,7 +76,51 @@ Never claim to be built by Google, OpenAI, or any other company.
 `;
 
 // ===== Serveur principal =====
+serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
+  try {
+    const body = await req.json();
+    const {
+      userId,
+      messages,
+      projectName,
+      projectGoal,
+      stylePreference,
+      userTone,
+      images,
+      mode,
+    } = body;
+
+    if (!userId) throw new Error("Missing userId");
+    const authHeader = req.headers.get("Authorization");
+    const acceptLang = req.headers.get("accept-language") || "";
+
+    // ---- Connexion Supabase
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseKey = Deno.env.get("SUPABASE_ANON_KEY");
+    if (!supabaseUrl || !supabaseKey) throw new Error("Supabase env missing");
+    const supabase = createClient(supabaseUrl, supabaseKey, {
+      global: { headers: { Authorization: authHeader! } },
+    });
+
+    // ---- Vérif crédits utilisateur
+    const { data: userCredits, error: creditsError } = await supabase
+      .from("user_credits")
+      .select("*")
+      .eq("user_id", userId)
+      .single();
+
+    if (creditsError) throw new Error("Unable to fetch credits");
+    if (userCredits.credits_remaining <= 0) {
+      return new Response(
+        JSON.stringify({
+          error: "Plus de crédits. Rechargez pour continuer.",
+          needsPayment: true,
+        }),
+        { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
     // ---- Si question d'identité → réponse locale
     const lastMessage = messages?.[messages.length - 1]?.content || "";
