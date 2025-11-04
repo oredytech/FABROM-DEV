@@ -109,17 +109,84 @@ serve(async (req) => {
       .from("user_credits")
       .select("*")
       .eq("user_id", userId)
-      .single();
+      .maybeSingle();
 
     if (creditsError) throw new Error("Unable to fetch credits");
-    if (userCredits.credits_remaining <= 0) {
-      return new Response(
-        JSON.stringify({
-          error: "Plus de crédits. Rechargez pour continuer.",
-          needsPayment: true,
-        }),
-        { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+    
+    // Initialize credits if user doesn't have record
+    if (!userCredits) {
+      const { data: newCredits, error: insertError } = await supabase
+        .from("user_credits")
+        .insert({
+          user_id: userId,
+          credits_remaining: 40,
+          last_reset_date: new Date().toISOString(),
+        })
+        .select()
+        .single();
+      
+      if (insertError) throw new Error("Unable to initialize credits");
+      
+      // Use the newly created credits record
+      const creditsToUse = newCredits;
+      await supabase
+        .from("user_credits")
+        .update({ credits_remaining: creditsToUse.credits_remaining - 1 })
+        .eq("user_id", userId);
+    } else {
+      // Check if 24h passed for free users reset (40 credits per month = ~1.33 per day)
+      const now = new Date();
+      const lastReset = new Date(userCredits.last_reset_date);
+      const hoursSinceReset = (now.getTime() - lastReset.getTime()) / (1000 * 60 * 60);
+
+      if (hoursSinceReset >= 24 && !userCredits.subscription_active) {
+        // Reset to 40 credits at start of month, or add daily allowance
+        const dayOfMonth = now.getDate();
+        const lastResetDay = lastReset.getDate();
+        
+        if (dayOfMonth === 1 && lastResetDay !== 1) {
+          // New month - reset to 40
+          await supabase
+            .from("user_credits")
+            .update({
+              credits_remaining: 40,
+              last_reset_date: now.toISOString(),
+            })
+            .eq("user_id", userId);
+        } else {
+          // Daily reset - add 2 credits (40/30 days ≈ 1.33, rounded to 2)
+          await supabase
+            .from("user_credits")
+            .update({
+              credits_remaining: Math.min(userCredits.credits_remaining + 2, 40),
+              last_reset_date: now.toISOString(),
+            })
+            .eq("user_id", userId);
+        }
+      }
+
+      // Re-fetch after potential reset
+      const { data: updatedCredits } = await supabase
+        .from("user_credits")
+        .select("*")
+        .eq("user_id", userId)
+        .single();
+
+      if (!updatedCredits || updatedCredits.credits_remaining <= 0) {
+        return new Response(
+          JSON.stringify({
+            error: "Plus de crédits. Rechargez pour continuer.",
+            needsPayment: true,
+          }),
+          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      // Décrémente un crédit
+      await supabase
+        .from("user_credits")
+        .update({ credits_remaining: updatedCredits.credits_remaining - 1 })
+        .eq("user_id", userId);
     }
 
     // ---- Si question d'identité → réponse locale
@@ -131,12 +198,6 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
-    // ---- Décrémente un crédit
-    await supabase
-      .from("user_credits")
-      .update({ credits_remaining: userCredits.credits_remaining - 1 })
-      .eq("user_id", userId);
 
     // ---- Préparation du contexte complet
     const aiIdentity = `
@@ -247,8 +308,9 @@ ${coreRules}
     });
   } catch (err) {
     console.error("Server error:", err);
+    const errorMessage = err instanceof Error ? err.message : "Unknown error";
     return new Response(
-      JSON.stringify({ error: err.message }),
+      JSON.stringify({ error: errorMessage }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }

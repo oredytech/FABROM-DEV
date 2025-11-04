@@ -68,14 +68,16 @@ export function ChatInterface({
           .from('user_credits')
           .select('credits_remaining')
           .eq('user_id', user.id)
-          .single();
+          .maybeSingle();
         
         if (error) {
           console.error("Error fetching credits:", error);
           return;
         }
         
-        setCreditsRemaining(data.credits_remaining);
+        if (data) {
+          setCreditsRemaining(data.credits_remaining);
+        }
       } catch (error) {
         console.error("Error fetching credits:", error);
       }
@@ -395,7 +397,7 @@ export function ChatInterface({
           .from('user_credits')
           .select('credits_remaining')
           .eq('user_id', user.id)
-          .single();
+          .maybeSingle();
         
         if (data) {
           setCreditsRemaining(data.credits_remaining);
@@ -495,7 +497,7 @@ export function ChatInterface({
           <h2 className="text-sm font-semibold text-white">Assistant IA</h2>
           {creditsRemaining !== null && (
             <span className="text-xs text-white/80 bg-white/10 px-2 py-0.5 rounded-full">
-              {creditsRemaining} crédits
+              Daily Credits: {creditsRemaining}/40
             </span>
           )}
         </div>
