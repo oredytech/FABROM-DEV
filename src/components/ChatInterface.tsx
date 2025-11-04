@@ -255,15 +255,28 @@ export function ChatInterface({
 
     try {
       const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`;
+
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      const currentUserId = sessionData.session?.user?.id;
+      if (!accessToken || !currentUserId) {
+        setIsLoading(false);
+        toast({
+          title: "Authentification requise",
+          description: "Veuillez vous connecter avant d'utiliser l'assistant.",
+          variant: "destructive",
+        });
+        return;
+      }
       
       const response = await fetch(CHAT_URL, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
-          userId: user?.id,
+          userId: currentUserId,
           messages: updatedMessages,
           code,
           directoryContext,
@@ -490,16 +503,14 @@ export function ChatInterface({
 
   return (
     <div className="flex flex-col h-full bg-card border-r border-border">
-      {/* Header - Now visible on all screens with 40px height */}
-      <div className="h-10 border-b border-border bg-gradient-assistant flex items-center justify-between px-3">
+      {/* Header - Visible sur toutes tailles */}
+      <div className="h-10 border-b border-border bg-card flex items-center justify-between px-3">
         <div className="flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-white" />
-          <h2 className="text-sm font-semibold text-white">Assistant IA</h2>
-          {creditsRemaining !== null && (
-            <span className="text-xs text-white/80 bg-white/10 px-2 py-0.5 rounded-full">
-              Daily Credits: {creditsRemaining}/40
-            </span>
-          )}
+          <Sparkles className="w-4 h-4 text-primary" />
+          <h2 className="text-sm font-semibold text-foreground">Assistant IA</h2>
+          <span className="text-xs text-muted-foreground bg-secondary px-2 py-0.5 rounded-full">
+            Crédits du jour: {creditsRemaining ?? 0}/40
+          </span>
         </div>
         <div className="flex items-center gap-2">
           {/* Mobile: Show user avatar in assistant header */}
@@ -511,7 +522,7 @@ export function ChatInterface({
           {onToggleVisibility && (
             <button
               onClick={onToggleVisibility}
-              className="text-white hover:bg-white/10 p-1 rounded transition-colors"
+              className="text-foreground hover:bg-muted p-1 rounded transition-colors"
               title="Masquer l'assistant"
             >
               <ChevronLeft className="w-4 h-4" />
@@ -534,7 +545,7 @@ export function ChatInterface({
             </div>
           )}
           {messages.length === 0 && directoryHandle && (
-            <div className="text-center text-muted-foreground py-8">
+            <div className="text-center text-muted-foreground py-6 md:py-8">
               <Sparkles className="w-12 h-12 mx-auto mb-4 opacity-50" />
               <p className="text-sm">Commencez une conversation pour générer du code</p>
               <p className="text-xs mt-2">Demandez-moi de créer n'importe quelle application web !</p>
@@ -551,13 +562,13 @@ export function ChatInterface({
                 </div>
               )}
               <div
-                className={`max-w-[70%] rounded-lg p-3 break-words ${
+                className={`max-w-[80%] md:max-w-[70%] rounded-lg p-3 break-words overflow-x-hidden ${
                   message.role === "user"
                     ? "bg-primary text-primary-foreground"
                     : "bg-muted text-foreground"
                 }`}
               >
-                <p className="text-sm whitespace-pre-wrap break-words">{message.content}</p>
+                <p className="text-sm whitespace-pre-wrap break-words overflow-x-hidden">{message.content}</p>
               </div>
               {message.role === "user" && user && (
                 <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center bg-primary">
@@ -574,7 +585,7 @@ export function ChatInterface({
           ))}
           {isLoading && (
             <div className="flex justify-start">
-              <div className="bg-secondary text-secondary-foreground rounded-lg p-3">
+              <div className="bg-muted text-foreground rounded-lg p-3">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
                   <div className="w-2 h-2 rounded-full bg-primary animate-pulse delay-100"></div>

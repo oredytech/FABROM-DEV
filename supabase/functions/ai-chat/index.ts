@@ -92,7 +92,6 @@ serve(async (req) => {
       mode,
     } = body;
 
-    if (!userId) throw new Error("Missing userId");
     const authHeader = req.headers.get("Authorization");
     const acceptLang = req.headers.get("accept-language") || "";
 
@@ -104,11 +103,21 @@ serve(async (req) => {
       global: { headers: { Authorization: authHeader! } },
     });
 
+    // Resolve user from JWT if not provided in body
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+    const resolvedUserId = authData?.user?.id ?? userId;
+    if (authError || !resolvedUserId) {
+      return new Response(
+        JSON.stringify({ error: "Unauthenticated" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     // ---- Vérif crédits utilisateur
     const { data: userCredits, error: creditsError } = await supabase
       .from("user_credits")
       .select("*")
-      .eq("user_id", userId)
+      .eq("user_id", resolvedUserId)
       .maybeSingle();
 
     if (creditsError) throw new Error("Unable to fetch credits");
@@ -118,7 +127,7 @@ serve(async (req) => {
       const { data: newCredits, error: insertError } = await supabase
         .from("user_credits")
         .insert({
-          user_id: userId,
+          user_id: resolvedUserId,
           credits_remaining: 40,
           last_reset_date: new Date().toISOString(),
         })
@@ -132,7 +141,7 @@ serve(async (req) => {
       await supabase
         .from("user_credits")
         .update({ credits_remaining: creditsToUse.credits_remaining - 1 })
-        .eq("user_id", userId);
+        .eq("user_id", resolvedUserId);
     } else {
       // Check if 24h passed for free users reset (40 credits per month = ~1.33 per day)
       const now = new Date();
@@ -146,22 +155,22 @@ serve(async (req) => {
         
         if (dayOfMonth === 1 && lastResetDay !== 1) {
           // New month - reset to 40
-          await supabase
-            .from("user_credits")
-            .update({
-              credits_remaining: 40,
-              last_reset_date: now.toISOString(),
-            })
-            .eq("user_id", userId);
+           await supabase
+             .from("user_credits")
+             .update({
+               credits_remaining: 40,
+               last_reset_date: now.toISOString(),
+             })
+             .eq("user_id", resolvedUserId);
         } else {
           // Daily reset - add 2 credits (40/30 days ≈ 1.33, rounded to 2)
-          await supabase
-            .from("user_credits")
-            .update({
-              credits_remaining: Math.min(userCredits.credits_remaining + 2, 40),
-              last_reset_date: now.toISOString(),
-            })
-            .eq("user_id", userId);
+           await supabase
+             .from("user_credits")
+             .update({
+               credits_remaining: Math.min(userCredits.credits_remaining + 2, 40),
+               last_reset_date: now.toISOString(),
+             })
+             .eq("user_id", resolvedUserId);
         }
       }
 
@@ -169,7 +178,7 @@ serve(async (req) => {
       const { data: updatedCredits } = await supabase
         .from("user_credits")
         .select("*")
-        .eq("user_id", userId)
+        .eq("user_id", resolvedUserId)
         .single();
 
       if (!updatedCredits || updatedCredits.credits_remaining <= 0) {
@@ -186,7 +195,7 @@ serve(async (req) => {
       await supabase
         .from("user_credits")
         .update({ credits_remaining: updatedCredits.credits_remaining - 1 })
-        .eq("user_id", userId);
+        .eq("user_id", resolvedUserId);
     }
 
     // ---- Si question d'identité → réponse locale
