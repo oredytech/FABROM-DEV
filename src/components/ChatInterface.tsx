@@ -274,6 +274,9 @@ export function ChatInterface({
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${accessToken}`,
+          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+          "x-client-info": "lovable-app",
+          "accept-language": navigator.language || "fr",
         },
         body: JSON.stringify({
           userId: currentUserId,
@@ -284,6 +287,17 @@ export function ChatInterface({
           projectName: "FABROM"
         }),
       });
+
+      if (response.status === 401) {
+        setIsLoading(false);
+        setMessages((prev) => prev.slice(0, -1));
+        toast({
+          title: "Authentification requise",
+          description: "Veuillez vous connecter pour continuer.",
+          variant: "destructive",
+        });
+        return;
+      }
 
       if (response.status === 402) {
         const errorData = await response.json();

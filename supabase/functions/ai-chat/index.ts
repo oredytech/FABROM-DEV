@@ -103,10 +103,10 @@ serve(async (req) => {
       global: { headers: { Authorization: authHeader! } },
     });
 
-    // Resolve user from JWT if not provided in body
-    const { data: authData, error: authError } = await supabase.auth.getUser();
+    // Resolve user from JWT; fall back to body userId
+    const { data: authData } = await supabase.auth.getUser();
     const resolvedUserId = authData?.user?.id ?? userId;
-    if (authError || !resolvedUserId) {
+    if (!resolvedUserId) {
       return new Response(
         JSON.stringify({ error: "Unauthenticated" }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
