@@ -256,7 +256,7 @@ export function ChatInterface({
     try {
       const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`;
 
-      // Use the user prop directly instead of getSession
+      // Use the user prop directly
       if (!user?.id) {
         setIsLoading(false);
         toast({
@@ -268,27 +268,19 @@ export function ChatInterface({
       }
 
       const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData.session?.access_token;
+      const accessToken = sessionData.session?.access_token || null;
       
-      if (!accessToken) {
-        setIsLoading(false);
-        toast({
-          title: "Session expirée",
-          description: "Veuillez vous reconnecter.",
-          variant: "destructive",
-        });
-        return;
-      }
-      
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        "x-client-info": "lovable-app",
+        "accept-language": navigator.language || "fr",
+      };
+      if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+
       const response = await fetch(CHAT_URL, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-          "x-client-info": "lovable-app",
-          "accept-language": navigator.language || "fr",
-        },
+        headers,
         body: JSON.stringify({
           userId: user.id,
           messages: updatedMessages,

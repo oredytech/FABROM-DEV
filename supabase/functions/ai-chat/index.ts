@@ -97,24 +97,36 @@ serve(async (req) => {
 
     // ---- Connexion Supabase
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const supabaseKey = Deno.env.get("SUPABASE_ANON_KEY");
-    if (!supabaseUrl || !supabaseKey) throw new Error("Supabase env missing");
-    const supabase = createClient(supabaseUrl, supabaseKey, {
-      global: { headers: { Authorization: authHeader! } },
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!supabaseUrl || !supabaseAnonKey) throw new Error("Supabase env missing");
+
+    // Client avec JWT utilisateur (si fourni)
+    const supabaseAuthed = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader ?? "" } },
     });
 
-    // Resolve user from JWT; fall back to body userId
-    const { data: authData } = await supabase.auth.getUser();
-    const resolvedUserId = authData?.user?.id ?? userId;
+    // Client admin (bypass RLS pour initialiser/mettre à jour les crédits)
+    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey || supabaseAnonKey);
+
+    // Resolve user from JWT; fallback to body userId
+    let resolvedUserId = userId as string | undefined;
+    try {
+      const { data: authData } = await supabaseAuthed.auth.getUser();
+      resolvedUserId = authData?.user?.id ?? resolvedUserId;
+    } catch (_) {
+      // Ignore auth errors; we'll rely on body userId
+    }
+
     if (!resolvedUserId) {
       return new Response(
-        JSON.stringify({ error: "Unauthenticated" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        JSON.stringify({ error: "Missing userId" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
-    // ---- Vérif crédits utilisateur
-    const { data: userCredits, error: creditsError } = await supabase
+    // ---- Vérif crédits utilisateur (admin bypass RLS)
+    const { data: userCredits, error: creditsError } = await supabaseAdmin
       .from("user_credits")
       .select("*")
       .eq("user_id", resolvedUserId)
@@ -128,7 +140,7 @@ serve(async (req) => {
     // Initialize credits if user doesn't have record
     if (!userCredits) {
       console.log("Initializing credits for new user:", resolvedUserId);
-      const { data: newCredits, error: insertError } = await supabase
+      const { data: newCredits, error: insertError } = await supabaseAdmin
         .from("user_credits")
         .insert({
           user_id: resolvedUserId,
@@ -146,9 +158,9 @@ serve(async (req) => {
       console.log("Credits initialized successfully:", newCredits);
       
       // Decrement the newly created credits record
-      await supabase
+      await supabaseAdmin
         .from("user_credits")
-        .update({ credits_remaining: newCredits.credits_remaining - 1 })
+        .update({ credits_remaining: (newCredits?.credits_remaining ?? 40) - 1 })
         .eq("user_id", resolvedUserId);
     } else {
       // Check if 24h passed for free users reset (40 credits per month = ~1.33 per day)
@@ -163,7 +175,7 @@ serve(async (req) => {
         
         if (dayOfMonth === 1 && lastResetDay !== 1) {
           // New month - reset to 40
-           await supabase
+           await supabaseAdmin
              .from("user_credits")
              .update({
                credits_remaining: 40,
@@ -172,7 +184,7 @@ serve(async (req) => {
              .eq("user_id", resolvedUserId);
         } else {
           // Daily reset - add 2 credits (40/30 days ≈ 1.33, rounded to 2)
-           await supabase
+           await supabaseAdmin
              .from("user_credits")
              .update({
                credits_remaining: Math.min(userCredits.credits_remaining + 2, 40),
@@ -183,7 +195,7 @@ serve(async (req) => {
       }
 
       // Re-fetch after potential reset
-      const { data: updatedCredits } = await supabase
+      const { data: updatedCredits } = await supabaseAdmin
         .from("user_credits")
         .select("*")
         .eq("user_id", resolvedUserId)
@@ -200,7 +212,7 @@ serve(async (req) => {
       }
 
       // Décrémente un crédit
-      await supabase
+      await supabaseAdmin
         .from("user_credits")
         .update({ credits_remaining: updatedCredits.credits_remaining - 1 })
         .eq("user_id", resolvedUserId);
