@@ -256,14 +256,25 @@ export function ChatInterface({
     try {
       const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`;
 
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData.session?.access_token;
-      const currentUserId = sessionData.session?.user?.id;
-      if (!accessToken || !currentUserId) {
+      // Use the user prop directly instead of getSession
+      if (!user?.id) {
         setIsLoading(false);
         toast({
           title: "Authentification requise",
           description: "Veuillez vous connecter avant d'utiliser l'assistant.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      
+      if (!accessToken) {
+        setIsLoading(false);
+        toast({
+          title: "Session expirée",
+          description: "Veuillez vous reconnecter.",
           variant: "destructive",
         });
         return;
@@ -279,7 +290,7 @@ export function ChatInterface({
           "accept-language": navigator.language || "fr",
         },
         body: JSON.stringify({
-          userId: currentUserId,
+          userId: user.id,
           messages: updatedMessages,
           code,
           directoryContext,

@@ -120,10 +120,14 @@ serve(async (req) => {
       .eq("user_id", resolvedUserId)
       .maybeSingle();
 
-    if (creditsError) throw new Error("Unable to fetch credits");
+    if (creditsError) {
+      console.error("Credits fetch error:", creditsError);
+      throw new Error("Unable to fetch credits");
+    }
     
     // Initialize credits if user doesn't have record
     if (!userCredits) {
+      console.log("Initializing credits for new user:", resolvedUserId);
       const { data: newCredits, error: insertError } = await supabase
         .from("user_credits")
         .insert({
@@ -134,13 +138,17 @@ serve(async (req) => {
         .select()
         .single();
       
-      if (insertError) throw new Error("Unable to initialize credits");
+      if (insertError) {
+        console.error("Credits insert error:", insertError);
+        throw new Error("Unable to initialize credits");
+      }
       
-      // Use the newly created credits record
-      const creditsToUse = newCredits;
+      console.log("Credits initialized successfully:", newCredits);
+      
+      // Decrement the newly created credits record
       await supabase
         .from("user_credits")
-        .update({ credits_remaining: creditsToUse.credits_remaining - 1 })
+        .update({ credits_remaining: newCredits.credits_remaining - 1 })
         .eq("user_id", resolvedUserId);
     } else {
       // Check if 24h passed for free users reset (40 credits per month = ~1.33 per day)
