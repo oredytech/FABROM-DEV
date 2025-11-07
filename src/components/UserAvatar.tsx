@@ -10,7 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { LogOut } from "lucide-react";
+import { LogOut, User as UserIcon } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 interface UserAvatarProps {
@@ -73,6 +73,10 @@ export const UserAvatar = ({ user }: UserAvatarProps) => {
             : user.email}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => navigate("/account")}>
+          <UserIcon className="mr-2 h-4 w-4" />
+          Mon compte
+        </DropdownMenuItem>
         <DropdownMenuItem onClick={handleSignOut}>
           <LogOut className="mr-2 h-4 w-4" />
           Déconnexion
