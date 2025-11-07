@@ -91,19 +91,26 @@ const Account = () => {
   const fetchCredits = async () => {
     if (!user) return;
 
-    const { data, error } = await supabase
-      .from("user_credits")
-      .select("*")
-      .eq("user_id", user.id)
-      .single();
+    try {
+      // Ensure server initializes/resets credits, then fetch
+      await supabase.functions.invoke('ensure-credits', { body: {} });
 
-    if (error) {
-      console.error("Error fetching credits:", error);
-      return;
-    }
+      const { data, error } = await supabase
+        .from("user_credits")
+        .select("*")
+        .eq("user_id", user.id)
+        .maybeSingle();
 
-    if (data) {
-      setCredits(data);
+      if (error) {
+        console.error("Error fetching credits:", error);
+        return;
+      }
+
+      if (data) {
+        setCredits(data);
+      }
+    } catch (e) {
+      console.error("Error ensuring/fetching credits:", e);
     }
   };
 

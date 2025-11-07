@@ -58,12 +58,14 @@ export function ChatInterface({
     scrollToBottom();
   }, [messages]);
 
-  // Fetch user credits
+  // Fetch user credits (ensure initialized via edge function)
   useEffect(() => {
     const fetchCredits = async () => {
       if (!user) return;
       
       try {
+        await supabase.functions.invoke('ensure-credits', { body: {} });
+
         const { data, error } = await supabase
           .from('user_credits')
           .select('credits_remaining')
@@ -79,7 +81,7 @@ export function ChatInterface({
           setCreditsRemaining(data.credits_remaining);
         }
       } catch (error) {
-        console.error("Error fetching credits:", error);
+        console.error("Error ensuring/fetching credits:", error);
       }
     };
 

@@ -8,3 +8,6 @@ verify_jwt = true
 
 [functions.upload-to-cloudinary]
 verify_jwt = false
+
+[functions.ensure-credits]
+verify_jwt = true
