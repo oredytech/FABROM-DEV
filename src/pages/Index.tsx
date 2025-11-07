@@ -371,6 +371,7 @@ const Index = () => {
                   onConversationUpdate={setConversationId}
                   onFileCreate={handleFileCreate}
                   onToggleVisibility={() => setShowAssistant(false)}
+                  user={user}
                 />
               </ResizablePanel>
               <ResizableHandle withHandle />
